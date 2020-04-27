@@ -25,7 +25,7 @@ class Corpus(object):
         uniq_labels = df.label.unique().tolist()
         
         diagnostic_content=Corpus._getFiles('data/final_dataset_v2_to_publish/train/text_files/')
-        if self.options.b: df = df.groupby('id')['label'].apply(list).reset_index(name='label')
+        if self.options.b : df = df.groupby('id')['label'].apply(list).reset_index(name='label')
         
         for row in df.itertuples():
             if row.id in diagnostic_content:
@@ -44,6 +44,12 @@ class Corpus(object):
         for row in df.itertuples():
             if row.id in diagnostic_content:
                 df.at[row.Index, 'text'] = diagnostic_content[row.id]
+        del diagnostic_content
+        return df
+
+    def _preprocessTest(self, data):
+        diagnostic_content=Corpus._getFiles(data)
+        df = pd.DataFrame(list(diagnostic_content.items()), columns = ['id', 'text']) 
         del diagnostic_content
         return df
 

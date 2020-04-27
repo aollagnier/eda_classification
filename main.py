@@ -30,7 +30,7 @@ if __name__ == '__main__':
         print ("\t e.g. dev: python3 main.py -D -p 0.1 /train_data/train.tsv dev_data/gold.tsv Result/")
         
         print ("Usage in labeling mode (-L):")
-        print ("\t python3 main.py [options] <input data folder> <output data folder>")
+        print ("\t python3 main.py [options] <input data folder> <model folder> <output data folder>")
         print ("\t e.g. labeling: python3 main.py -L -p 0.1 train_data/ Result/")
 
         print ("Options")
@@ -46,7 +46,7 @@ if __name__ == '__main__':
         print ("  -b : --binary_mode")
         print ("\t Change the data to be trained using One vs Rest mode, default='False'")
         print ("  -a : --augmentation_mode")
-        print ("\t Data augmentation strategy, default='all'")
+        print ("\t Data augmentation strategy, default=False")
 
         print ("  -t : --document_type")
         print ("\t Used as a part of the eHealth CLEF– Multilingual Information Extraction Challenge, default=False")
@@ -54,18 +54,19 @@ if __name__ == '__main__':
 
     else:
         classification_process = Classification(options)
-        if options.t : model_path= 'model/'+options.t
-        else:model_path= 'model/'
-
-        if options.b: dirModel = os.path.join(rootDir, model_path+'/binary_mode/')
-        elif options.a: dirModel = os.path.join(rootDir, model_path+'/eda_'+options.a+'/')
+        if options.t : dirModel= os.path.join(rootDir,'model/'+options.t)
         else: dirModel = os.path.join(rootDir, 'model/')
+
+        if options.b: dirModel = os.path.join(rootDir, dirModel+'/binary_mode/')
+        elif options.a: dirModel = os.path.join(rootDir, dirModel+'/eda_'+options.a+'/')
         if not os.path.exists(dirModel): os.makedirs(dirModel)
+        
         if options.T : #training
             classification_process.train(str(args[0]), dirModel)
         elif options.D : #dev
             classification_process.dev(str(args[0]), str(args[1]), str(args[2]), dirModel)
         elif options.L : #labeling
+            dirModel = str(args[1])
             classification_process.test(str(args[0]), dirModel)
         else:
             print("Please choose training(-T option), dev (-D option) or testing(-L option)")

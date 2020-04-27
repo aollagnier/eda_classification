@@ -36,9 +36,9 @@ def defaultOptions():
             )
 
     common_opts.add_option('-t', '--typetrain', dest="t", default=False, action="store", type='choice', choices=['diag', 'proc'], help="Only when working on eHealth CLEF– Multilingual Information Extraction Tasks")
-    common_opts.add_option('-p', '--percent', dest="p", default=0.0, action="store", help="discarde rare classes (%)")
+    common_opts.add_option('-p', '--percent', dest="p", default=False, action="store", help="discarde rare classes (%)")
     common_opts.add_option('-b', '--binary', dest="b", default=False, action="store", help="one VS Rest classifier (Multi-Class classification purposes)")
-    common_opts.add_option('-a', '--augmentation', dest="a", default='all', action="store", type='choice', choices=['all', 'sr','rd','rs', 'ri'], help="Text augmentation strategy")
+    common_opts.add_option('-a', '--augmentation', dest="a", default=False, action="store", type='choice', choices=['all', 'sr','rd','rs', 'ri'], help="Text augmentation strategy")
     parser.add_option_group(common_opts)
 
     return parser
