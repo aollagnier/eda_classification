@@ -76,7 +76,6 @@ def get_synonyms(word, lang):
 ########################################################################
 
 def random_deletion(words, p):
-    print(words)
     #obviously, if there's only one word, don't delete it
     if len(words) == 1:
         return words
@@ -147,48 +146,46 @@ def add_word(new_words, lang):
 ########################################################################
 
 def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=9):
-     
+    strat = [float(i) for i in [alpha_sr, alpha_ri, alpha_rs, p_rd]]
+    count=strat.count(0.0)
+    
     sentence = get_only_chars(sentence)
-    print(sentence, len(sentence))
     words = sentence.split(' ')
     words = [word for word in words if word is not '']
     num_words = len(words)
-    print(words)
-
-    augmented_sentences = []
-    num_new_per_technique = int(num_aug/4)+1
-    n_sr = max(1, int(alpha_sr*num_words))
-    n_ri = max(1, int(alpha_ri*num_words))
-    n_rs = max(1, int(alpha_rs*num_words))
+   
+    augmented_sentences=[]
+    if num_words > 0:
+        num_new_per_technique = int(num_aug/(len(strat)-count))+1
+        #num_new_per_technique = int(num_aug/4)+1
+        n_sr = max(1, int(alpha_sr*num_words))
+        n_ri = max(1, int(alpha_ri*num_words))
+        n_rs = max(1, int(alpha_rs*num_words))
     
-    #sr
-    if alpha_sr !=0 or alpha_sr !=0.0:
-        print('Synonym replacement processing...')
-        for _ in range(num_new_per_technique):
-            a_words = synonym_replacement(words, n_sr, 'spa')
-            augmented_sentences.append(' '.join(a_words))
-        
-    #ri
-    if alpha_ri !=0 or alpha_ri !=0.0:
-        print('Random insertion processing...')
-        for _ in range(num_new_per_technique):
-            a_words = random_insertion(words, n_ri, 'spa')
-            augmented_sentences.append(' '.join(a_words))
-        
-    #rs
-    if alpha_rs !=0 or alpha_rs !=0.0:
-        print('Random swap processing...')
-        for _ in range(num_new_per_technique):
-            a_words = random_swap(words, n_rs)
-            augmented_sentences.append(' '.join(a_words))
-        
-    #rd
-    if p_rd !=0 or p_rd !=0.0:
-        print('Random deletion processing...')
-        for _ in range(num_new_per_technique):
-            a_words = random_deletion(words, p_rd)
-            augmented_sentences.append(' '.join(a_words))
-    
+        #sr
+        if alpha_sr !=0 or alpha_sr !=0.0:
+            #print('Synonym replacement processing...')
+            for _ in range(num_new_per_technique):
+                a_words = synonym_replacement(words, n_sr, 'spa')
+                augmented_sentences.append(' '.join(a_words))
+        #ri
+        if alpha_ri !=0 or alpha_ri !=0.0:
+            #print('Random insertion processing...')
+            for _ in range(num_new_per_technique):
+                a_words = random_insertion(words, n_ri, 'spa')
+                augmented_sentences.append(' '.join(a_words))
+        #rs
+        if alpha_rs !=0 or alpha_rs !=0.0:
+            #print('Random swap processing...')
+            for _ in range(num_new_per_technique):
+                a_words = random_swap(words, n_rs)
+                augmented_sentences.append(' '.join(a_words))
+        #rd
+        if p_rd !=0 or p_rd !=0.0:
+            #print('Random deletion processing...')
+            for _ in range(num_new_per_technique):
+                a_words = random_deletion(words, p_rd)
+                augmented_sentences.append(' '.join(a_words))
     augmented_sentences = [get_only_chars(sentence) for sentence in augmented_sentences]
     shuffle(augmented_sentences)
     
@@ -199,7 +196,8 @@ def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=9)
         keep_prob = num_aug / len(augmented_sentences)
         augmented_sentences = [s for s in augmented_sentences if random.uniform(0, 1) < keep_prob]
         
-    #append the original sentence
-    augmented_sentences.append(sentence)
+    if len(augmented_sentences) == 0:
+        #append the original sentence
+        augmented_sentences.append(sentence)
     
     return augmented_sentences

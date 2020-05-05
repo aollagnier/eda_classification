@@ -8,15 +8,20 @@ Train, dev and test functions
 
 '''
 
-import os, gc, pickle, operator, joblib, csv
+import os, gc, pickle, operator, itertools, joblib, csv
 import tensorflow as tf
 from datetime import datetime
 from tempfile import mkdtemp
 from  itertools import chain
+from collections import Counter
+import numpy as np 
 
+from keras2vec.keras2vec import Keras2Vec
+from keras2vec.document import Document
 from corpus import Corpus
 from model import Model, OneVSRest
 from eda import EDA
+from dataganerator import DataGenerator
 
 class Classification(object):
     def __init__(self, options={}): 
@@ -24,18 +29,17 @@ class Classification(object):
         self.rootDir = '/'.join(main[:len(main)-1])
         self.options = options
 
+        self.runs = 1
+
     def train(self, dirCorpus, dirModel):
         # Usage: python3 main.py -T -t proc -p 0.1 data/final_dataset_v2_to_publish/train/trainP.tsv
         
         print("data processing...")
         corpus = Corpus(dirCorpus, dirModel, self.options)
         data = corpus._preprocess(self.options.p)
+        labels = data.label.unique().tolist()
 
-        if self.options.a:
-            eda_board=EDA(self.options.a)
-            data = eda_board._preprocess(data)
-        
-        print(data.head())
+        data = DataGenerator(data.text, data.label.values, dirModel, self.options, max_len=396, n_classes= len(labels))
 
         print("Training...")
         if self.options.b: model = OneVSRest(dirModel, self.options)
@@ -43,6 +47,7 @@ class Classification(object):
         
         current_time_bf=datetime.now()
         model._runTrain(data)
+
         current_time_af=datetime.now()
         c = current_time_af - current_time_bf
         print("Elapsed time =", c.total_seconds())
@@ -54,88 +59,94 @@ class Classification(object):
 
         if dirResult == '' : dirResult = os.path.join(self.rootDir, 'Result')
         if not os.path.exists(dirResult): os.makedirs(dirResult)
-        dirResult = mkdtemp(dir = dirResult) + '/'
         
         print("Data processing...")
         corpus = Corpus(dirTrainCorpus, dirModel, self.options)
-        data = corpus._preprocess(self.options.p)
-        if self.options.a:
-            eda_board=EDA(self.options.a)
-            data = eda_board._preprocess(data)
-        print(data.head())
+        results=[]
         
-        print("Training...")
-        if self.options.b: model = OneVSRest(dirModel, self.options)
-        else: model = Model(dirModel, self.options)
-        
-        current_time_bf=datetime.now()
-        model._runTrain(data)
-        current_time_af=datetime.now()
-        c = current_time_af - current_time_bf
-        print("Elapsed time =", c.total_seconds())
-        gc.collect()
-
-        print("Dev data processing...")
-        data = corpus._preprocessDev(dirDevCorpus)
-        print(data.head())
-        with open(dirModel+"/word2vec.model", 'rb') as handle:
-            loaded_tokenizer = pickle.load(handle)
-        
-        if self.options.b:
-            labels_list = chain(*df.label)
-            label_keys=labels_list.keys()
-            print(labels_list, len(labels_list))
-
-            preds = pd.DataFrame()
-            for label in label_keys:
-                print('Working with {}...'.format(dirModel+label+'.h5'))
-                loaded_model = tf.keras.models.load_model(dirModel+label+'.h5')
-                preds[label] = [Codiesp._threshold(i, 0.1) for i in loaded_model.predict(dev_seqs)]
-                tf.keras.backend.clear_session()
-                del loaded_model
-                gc.collect()
-            preds=preds.values.tolist()
-            preds= [[i for i, pred in enumerate(example) if pred == 1] for example in preds]
-            preds= [[uniq_labels[idx] for idx in example] for example in preds]
-
-        else:
-            with open(dirModel+"/labelEncoder.model", 'rb') as le:
-                lb = joblib.load(le)
-            dev_seqs=model._preprocess(data, loaded_tokenizer, maxlen=396)
-            print('Shape of data tensor:', dev_seqs.shape)
-        
-            loaded_model = tf.keras.models.load_model(dirModel+'/cnn.h5')
-            print('Model used: {}'.format(dirModel+'/cnn.h5'))
-            preds = loaded_model.predict(dev_seqs)
-            #preds= [[i for i, pred in enumerate(example) if Classification._threshold(pred, 0.5) == 1] for example in preds]
-            preds= [[(i, pred) for i, pred in enumerate(example) if Classification._threshold(pred, 0.5) == 1] for example in preds]
-            preds= [sorted(example, key=lambda x: x[1], reverse=True) for example in preds]
-            preds= [[pred[0] for i, pred in enumerate(example)] for example in preds]
-            preds = [list(lb.inverse_transform(i)) for i in preds]
-
-        data['prediction'] = preds
-        with open(dirResult+'output'+self.options.t+'.tsv', 'wt') as out_file:
-            tsv_writer = csv.writer(out_file, delimiter='\t')
-            for row in data[['id', 'prediction']].itertuples():
-                code = list(row.prediction)
-                for c in code:
-                    tsv_writer.writerow([row.id, c.upper()])
-        
-        
-        predictions = dirResult+'output'+self.options.t+'.tsv'
-        
-        if self.options.t:
-        
-            if self.options.t == 'diag':
-                gold_file = 'data/final_dataset_v2_to_publish/dev/devD.tsv'
-                codes_file = 'data/codiesp-D_codes.tsv'
-            else:
-                gold_file = 'data/final_dataset_v2_to_publish/dev/devP.tsv'
-                codes_file = 'data/codiesp-P_codes.tsv'
+        for i in range(self.runs):
+            dirResult = mkdtemp(dir = dirResult) + '/'
+            data = corpus._preprocess(self.options.p)
+            labels = data.label.unique().tolist()
             
-            command = 'python CodiEsp-Evaluation-Script/codiespD_P_evaluation.py -g '+gold_file+' -p '+predictions+' -c '+codes_file
-            print(command)
+            print('Running iteration %i/%i' % (i+1, self.runs))
+            #data = DataGenerator(data.text, data.label.values, dirModel, self.options, max_len=396, n_classes= len(labels), val_gen=True)
+            data = DataGenerator(data.text, data.label.values, dirModel, self.options, batch_size=50, max_len=396, n_classes= len(labels))
+            
+            print("Training...")
+            if self.options.b: model = OneVSRest(dirModel, self.options)
+            else: model = Model(dirModel, self.options)
+        
+            current_time_bf=datetime.now()
+            model._runTrain(data)
+            current_time_af=datetime.now()
+            c = current_time_af - current_time_bf
+            print("Elapsed time =", c.total_seconds())
+            gc.collect()
+            
+            print("Dev data processing...")
+            data = corpus._preprocessDev(dirDevCorpus)
+            print(data.head())
+            with open(dirModel+"/word2vec.model", 'rb') as handle:
+                loaded_tokenizer = pickle.load(handle)
+        
+            if self.options.b:
+                labels_list = chain(*df.label)
+                label_keys=labels_list.keys()
+                print(labels_list, len(labels_list))
 
+                preds = pd.DataFrame()
+                for label in label_keys:
+                    print('Working with {}...'.format(dirModel+label+'.h5'))
+                    loaded_model = tf.keras.models.load_model(dirModel+label+'.h5')
+                    preds[label] = [Codiesp._threshold(i, 0.1) for i in loaded_model.predict(dev_seqs)]
+                    tf.keras.backend.clear_session()
+                    del loaded_model
+                    gc.collect()
+                preds=preds.values.tolist()
+                preds= [[i for i, pred in enumerate(example) if pred == 1] for example in preds]
+                preds= [[uniq_labels[idx] for idx in example] for example in preds]
+
+            else:
+                with open(dirModel+"/labelEncoder.model", 'rb') as le:
+                    lb = joblib.load(le)
+                dev_seqs=model._preprocess(data, loaded_tokenizer, maxlen=396)
+                print('Shape of data tensor:', dev_seqs.shape)
+        
+                loaded_model = tf.keras.models.load_model(dirModel+'/cnn.h5')
+                print('Model used: {}'.format(dirModel+'/cnn.h5'))
+                preds = loaded_model.predict(dev_seqs)
+                #preds= [[i for i, pred in enumerate(example) if Classification._threshold(pred, 0.5) == 1] for example in preds]
+                preds= [[(i, pred) for i, pred in enumerate(example) if Classification._threshold(pred, 0.5) == 1] for example in preds]
+                preds= [sorted(example, key=lambda x: x[1], reverse=True) for example in preds]
+                preds= [[pred[0] for i, pred in enumerate(example)] for example in preds]
+                preds = [list(lb.inverse_transform(i)) for i in preds]
+
+            data['prediction'] = preds
+            with open(dirResult+'output'+self.options.t+'.tsv', 'wt') as out_file:
+                tsv_writer = csv.writer(out_file, delimiter='\t')
+                for row in data[['id', 'prediction']].itertuples():
+                    code = list(row.prediction)
+                    for c in code:
+                        tsv_writer.writerow([row.id, c.upper()])
+        
+        
+            predictions = dirResult+'output'+self.options.t+'.tsv'
+        
+            if self.options.t:
+        
+                if self.options.t == 'diag':
+                    gold_file = 'data/final_dataset_v2_to_publish/dev/devD.tsv'
+                    codes_file = 'data/codiesp-D_codes.tsv'
+                else:
+                    gold_file = 'data/final_dataset_v2_to_publish/dev/devP.tsv'
+                    codes_file = 'data/codiesp-P_codes.tsv'
+            
+                command = 'python CodiEsp-Evaluation-Script/codiespD_P_evaluation.py -g '+gold_file+' -p '+predictions+' -c '+codes_file
+                results.append(command)
+                print(command)
+        print(results)
+    
     def test(self, dirTestCorpus, dirModel):
         # usage: python3 main.py -L -t proc data/final_dataset_v2_to_publish/test/text_files/ model/proc/cnn.h5
 

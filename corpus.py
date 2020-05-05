@@ -10,6 +10,7 @@ import os, glob, unidecode
 import pandas as pd
 from collections import Counter
 from  itertools import chain
+from nltk.corpus import stopwords
 
 from tensorflow.keras.preprocessing.text import text_to_word_sequence
 
@@ -31,7 +32,6 @@ class Corpus(object):
             if row.id in diagnostic_content:
                 df.at[row.Index, 'text'] = diagnostic_content[row.id]
         del diagnostic_content
-
         if percentage !=0.0 or percentage!=0:
             df = Corpus._get_refine_data(df, uniq_labels, percentage, binary=self.options.b)
         df = df.drop(['id'], axis=1)
