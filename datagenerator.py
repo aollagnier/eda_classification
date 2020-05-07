@@ -6,6 +6,9 @@ Created on April 30, 2020
 @author: Anais Ollagnier
 
 '''
+
+from sentence_transformers.sentence_transformers import SentenceTransformer
+from sentence_transformers.sentence_transformers import models
 import re, joblib, os, itertools, random
 import numpy as np
 
@@ -15,83 +18,14 @@ import numpy as np
 from keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
 from nltk.tokenize import sent_tokenize
+from transformers import *
 
 from model import Model
 import utils, eda_utils
 
-class MixupGenerator():
-    def __init__(self, X_train, y_train, batch_size=32, alpha=0.2, n_classes=10, shuffle=True):
-        self.X_train = X_train
-        self.y_train = y_train
-        self.batch_size = batch_size
-        self.alpha = alpha
-        self.shuffle = shuffle
-        self.sample_num = len(X_train)
-        self.n_classes = n_classes
-
-    def __call__(self):
-        while True:
-            indexes = self.__get_exploration_order()
-            itr_num = int(len(indexes) // (self.batch_size * 2))
-
-            for i in range(itr_num):
-                batch_ids = indexes[i * self.batch_size * 2:(i + 1) * self.batch_size * 2]
-                X, y = self.__data_generation(batch_ids)
-
-                yield X, y
-
-    def __get_exploration_order(self):
-        indexes = np.arange(self.sample_num)
-
-        if self.shuffle:
-            np.random.shuffle(indexes)
-
-        return indexes
-
-    def __data_generation(self, batch_ids):
-        print(self.X_train.shape)
-
-        # encode class values as integers
-        encoder = LabelEncoder()
-        encoder.fit(self.y_train)
-        encoded_Y=encoder.transform(self.y_train)
-        self.y_train = to_categorical(encoded_Y)
-        print(type(self.y_train))
-        #_, h, w, c = self.X_train.shape
-        _, c = self.X_train.shape
-        l = np.random.beta(self.alpha, self.alpha, self.batch_size)
-        X_l = l.reshape(self.batch_size, 1)
-        y_l = l.reshape(self.batch_size, 1)
-
-        X1 = self.X_train[batch_ids[:self.batch_size]]
-        print('------------', X1)
-        X2 = self.X_train[batch_ids[self.batch_size:]]
-        print('************', X2)
-        X = X1 * X_l + X2 * (1 - X_l)
-        
-        if isinstance(self.y_train, list):
-            y = []
-
-            for y_train_ in self.y_train:
-                y1 = y_train_[batch_ids[:self.batch_size]]
-                y2 = y_train_[batch_ids[self.batch_size:]]
-                y.append(y1 * y_l + y2 * (1 - y_l))
-        else:
-            print('yoooooooooooooooo')
-            y1 = self.y_train[batch_ids[:self.batch_size]]
-            y2 = self.y_train[batch_ids[self.batch_size:]]
-            y = y1 * y_l + y2 * (1 - y_l)
-        
-        print(batch_ids)
-        X = self.X_train[batch_ids[:self.batch_size]]
-        y = self.y_train[batch_ids[:self.batch_size]]
-        print(X.shape)
-        print(y.shape)
-        return X, y
-
 class DataGenerator(Sequence):
     def __init__(self, docs, labels, dirModel, options, n_classes=10,# data settings
-            vocab_size=10000, max_len=24, #vocabulary settings
+            vocab_size=10000, max_len=24, embedding = None, #vocabulary settings
             batch_size=32,  shuffle=True #augmentation settings
             ):
         """Initialization
@@ -108,10 +42,32 @@ class DataGenerator(Sequence):
         """
         
         utils.reset_seeds()
-
+        # Use BERT for mapping tokens to embeddings
+        #word_embedding_model = models.Transformer('bert-base-multilingual-cased') 
+        #print(word_embedding_model) 
+        
+        self.embedding_model={
+                'transfo': (TransfoXLTokenizer, 'transfo-xl-wt103', TransfoXLConfig, TFTransfoXLModel),
+                'ctrl': (CTRLTokenizer, 'ctrl', CTRLConfig, TFCTRLModel),
+                'electra': (ElectraTokenizer, 'google/electra-small-discriminator', ElectraConfig, TFElectraModel),
+                't5': (T5Tokenizer, 't5-base', T5Config, TFT5Model),
+                'bert': (BertTokenizer, 'bert-base-multilingual-uncased', BertConfig, TFBertModel),
+                'gpt2': (GPT2Tokenizer, 'gpt2', GPT2Config, TFGPT2Model),
+                'xlnet': (XLNetTokenizer, 'xlnet-base-cased', XLNetConfig, TFXLNetModel),
+                'roberta': (RobertaTokenizer, 'roberta-base', RobertaConfig, TFRobertaModel),
+                'distil': (DistilBertTokenizer, 'distilbert-base-cased', DistilBertConfig, TFDistilBertModel),
+                'albert': (AlbertTokenizer, 'albert-base-v2', AlbertConfig, TFAlbertModel)
+                }
+        
+        self.embedding = embedding
+        if self.embedding is not None:
+            ntokenizer, self.nmodel, self.config, self.model_class = self.embedding_model[self.embedding][0], self.embedding_model[self.embedding][1], self.embedding_model[self.embedding][2], self.embedding_model[self.embedding][3]
+            self.tokenizer=ntokenizer.from_pretrained(self.nmodel)
+        
         self.docs = docs
         self.labels = labels
         self.n_classes = n_classes
+        self.embedding = embedding
         self.dirModel = dirModel
         self.options = options
         self.vocab_size= vocab_size
@@ -125,7 +81,19 @@ class DataGenerator(Sequence):
                 'ALPHA_RI':0.1,
                 'ALPHA_RS':0.1,
                 'ALPHA_RD':0.1,
+                'ALPHA_VF':0.5
                 }
+        
+        if self.strategy == 'sr':
+            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_RD'], self.alpha_args['ALPHA_VF'] = 0.0, 0.0, 0.0, 0.0
+        elif self.strategy == 'ri':
+            self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_RD'], self.alpha_args['ALPHA_VF'] = 0.0, 0.0, 0.0, 0.0
+        elif self.strategy == 'rs':
+            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_RD'], self.alpha_args['ALPHA_VF'] = 0.0, 0.0, 0.0, 0.0
+        elif self.strategy == 'rd':
+            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_VF'] = 0.0, 0.0, 0.0, 0.0
+        elif self.strategy == 'vf':
+            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_RD'] = 0.0, 0.0, 0.0, 0.0
         
         self.doc_vocab = None
         self.build_vocab()
@@ -148,9 +116,27 @@ class DataGenerator(Sequence):
         word_index = self.doc_vocab.word_index
         print("unique words : {}".format(len(word_index)))
 
-    #def create_encodings(self):
+    def __create_encodings(self, data):
         #"""Build the encodings for the provided data"""
         #self.docs = self.doc_vocab.texts_to_sequences(self.docs)
+        words_encoder= self.doc_vocab.texts_to_sequences(data)
+        batch_words = tf.keras.preprocessing.sequence.pad_sequences(words_encoder, maxlen=self.max_len, padding='post', truncating='post')
+        batch_docs = self.__sent2vec(data, self.doc_vocab)
+        #print([np.vstack(batch_docs),
+                      #np.vstack(batch_words)])
+        return [batch_words, batch_docs]
+
+    def __sent2vec(self, X, tokenizer, sent_max_len=20, max_sentences=10):
+        data_feature = np.zeros((len(X), max_sentences, sent_max_len), dtype='int32')
+        for i, sentences in enumerate(X):
+            sentences = sent_tokenize(sentences)
+            sentences = sentences[:max_sentences]
+            w= self.doc_vocab.texts_to_sequences(sentences)
+            w= tf.keras.preprocessing.sequence.pad_sequences(w, maxlen=sent_max_len, padding="post", truncating='post')
+            if len(w) < max_sentences:
+                w = np.pad(w, ((0,max_sentences-len(w)),(0,0)), mode='constant')
+            data_feature[i] = w
+        return data_feature
     
     def __len__(self):
         """Denotes the number of batches per epoch
@@ -158,38 +144,6 @@ class DataGenerator(Sequence):
         """
         
         return int(np.floor(len(self.docs) / self.batch_size))
-    '''
-    def __getitem__(self, index):
-        """Generate one batch of data
-        :param index: index of the batch
-        :return: X and y when fitting. X only when predicting
-        """
-        # Generate indexes of the batch
-        indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
-        # Find list of IDs
-        #list_IDs_temp = [self.features[k] for k in indexes]
-        #print(list_IDs_temp)
-        # Generate data
-        #X, y = self.__data_generation(list_IDs_temp)
-        #print(list_IDs_temp.shape)
-        #data = np.random.random((1000, 100))
-        #labels = np.random.randint(10, size=(1000, 1))
-
-        # Convert labels to categorical one-hot encoding
-        encoder = LabelEncoder()
-        encoder.fit(self.labels)
-        encoded_Y=encoder.transform(self.labels)
-        one_hot_labels = to_categorical(encoded_Y, num_classes=self.n_classes)
-        print(one_hot_labels)
-        #X, y = self.__data_generation(list_IDs_temp)
-        
-        #if self.to_fit:
-            #y = self._generate_y(list_IDs_temp)
-            #return X, y
-        #else:
-            #return X
-        return X,y
-        '''
 
     def __getitem__(self, index):
         'Generate one batch of data'
@@ -205,15 +159,27 @@ class DataGenerator(Sequence):
         X = [self.docs[k] for k in indexes]
         y = [self.labels[k] for k in indexes]
         encoded_Y=encoder.transform(y)
-
+        y = to_categorical(encoded_Y, num_classes=self.n_classes)
         # Generate data
         if self.options.a:
             X = self.__data_augmentation(X)
     
-        X= self.doc_vocab.texts_to_sequences(X)
-        X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=self.max_len, padding="post")
+        if self.embedding:
+
+            inps = [self.tokenizer.encode_plus(t, max_length=self.max_len, pad_to_max_length=True, add_special_tokens=True) for t in X]
+            X = np.array([a['input_ids'] for a in inps])
+            
+            #config=self.config.from_pretrained(self.mname)
+            #config.output_hidden_states = False
+            #model=self.model_class.from_pretrained(self.mname, config=config)
+            #X,y=self.mixup_data(model([input_ids])[0], y)
+        else:
+            X= self.doc_vocab.texts_to_sequences(X)
+            X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=self.max_len, padding="post")
+            #self.__embedding_matrix()
+            #X= self.__create_encodings(X)
         
-        return X, to_categorical(encoded_Y, num_classes=self.n_classes)
+        return X, y
 
     def on_epoch_end(self):
         """Updates indexes after each epoch
@@ -224,72 +190,48 @@ class DataGenerator(Sequence):
     
     def __data_augmentation(self, list_doc_temp):
         'Returns augmented data with batch_size docs' # X : (n_samples, max_len)
-        # Initialization
-        if self.strategy == 'sr':
-            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_RD'] = 0.0, 0.0, 0.0
-        elif self.strategy == 'ri':
-            self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_RD'] = 0.0, 0.0, 0.0
-        elif self.strategy == 'rs':
-            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_SR'], self.alpha_args['ALPHA_RD'] = 0.0, 0.0, 0.0
-        elif self.strategy == 'rd':
-            self.alpha_args['ALPHA_RI'], self.alpha_args['ALPHA_RS'], self.alpha_args['ALPHA_SR'] = 0.0, 0.0, 0.0
         
         # Generate new samples
         X=[]
         for doc in list_doc_temp:
             sent_tokenize_list = sent_tokenize(doc)
-            new_doc = [random.choice(eda_utils.eda(sent, alpha_sr=self.alpha_args['ALPHA_SR'], alpha_ri=self.alpha_args['ALPHA_RI'], alpha_rs=self.alpha_args['ALPHA_RS'], p_rd=self.alpha_args['ALPHA_RD'], num_aug=1)) for sent in sent_tokenize_list]
+            new_doc = [random.choice(eda_utils.eda(sent, 
+                alpha_sr=self.alpha_args['ALPHA_SR'], # synonyms
+                alpha_ri=self.alpha_args['ALPHA_RI'], # random insertion
+                alpha_rs=self.alpha_args['ALPHA_RS'], # random swap
+                p_rd=self.alpha_args['ALPHA_RD'], #random deletion
+                alpha_vf=self.alpha_args['ALPHA_VF'], #vertical flip
+                num_aug=1)) for sent in sent_tokenize_list]
             X.append(' '.join(new_doc))
-        '''
-        X = np.empty((self.batch_size, 
-            self.max_len))# n_enzymes
-                      #self.v_size, # dimension w.r.t. x
-                      #self.v_size, # dimension w.r.t. y
-                      #self.v_size, # dimension w.r.t. z
-                      #self.n_channels)) # n_channels
-        y = np.empty((self.batch_size), dtype=int)
-
-        # Computations
-        for i in range(self.batch_size):
-            print(self.labels[self.indexes[i]])
-            # Store class
-            y[i] = self.labels[self.indexes[i]]
-            '''
         return X
-    ''' 
-    def __data_generation(self, list_IDs_temp):
-        'Generates data containing batch_size samples' # X : (n_samples, *dim, n_channels)
-        # Initialization
-        
-        X = np.empty((self.batch_size,))
-        y = np.empty((self.batch_size), dtype=int)
-        
-        for text, label in enumerate():
-            # Store sample
-            X[i,] = self.features 
-
-            # Store class
-            y[i] = self.labels[ID]
-        return X, keras.utils.to_categorical(y, num_classes=self.n_classes)
     
-    def mixup_data(self, x, y, alpha=1.0):
+    def mixup_data(self, x, y, alpha=0.2):
         if alpha > 0:
             lam = np.random.beta(alpha, alpha)
         else:
             lam = 1
-        print(x, x.shape) 
+        
         sample_size = x.shape[0]
         index_array = np.arange(sample_size)
         np.random.shuffle(index_array)
-        print(sample_size, index_array)
-        print( x[index_array])
-        mixed_x = lam * x + (1 - lam) * x[index_array]
-        mixed_y = (lam * y) + ((1 - lam) * y[index_array])
+        X = np.empty((self.batch_size, # n_docs
+                      self.max_len, # dimension w.r.t. x
+                      x.shape[2] # dimension w.r.t. bert embedding
+                      ))
+        y = []
         
-        print((1 - lam) * y[index_array])
-        print((lam * y).shape,((1 - lam) * y[index_array]).shape)
-        return mixed_x, mixed_y
+        for i in range(self.batch_size):
+            #store mixed doc
+            X[i] = lam * x[i] + (1 - lam) * x[index_array.tolist()[i]]
+        #mixed_x = lam * x + (1 - lam) * x[index_array]
+        #mixed_y = (lam * y) + ((1 - lam) * y[index_array])
+        
+        #print((1 - lam) * y[index_array])
+        #print((lam * y).shape,((1 - lam) * y[index_array]).shape)
+        return X, y
+     
     
+    '''
     def make_batches(self, size, batch_size):
         nb_batch = int(np.ceil(size/float(batch_size)))
         return [(i*batch_size, min(size, (i+1)*batch_size)) for i in range(0, nb_batch)]

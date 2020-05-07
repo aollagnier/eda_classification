@@ -65,6 +65,7 @@ class CNN(BaseEstimator):
         self.attention_layer = attention_layer
         self.nb_classes   = nb_classes
         self.activation = activation
+    
     def build_model(self):
         """
         Build the model
@@ -80,11 +81,12 @@ class CNN(BaseEstimator):
         if self.use_char and (not self.char_max_length or not self.alphabet_size):
             raise Exception('Please define `char_max_length` and `alphabet_size` if you are using char.')
         
-        if self.use_sent:
-            word_input = layers.Input(shape=(self.sent_max_len, ), dtype='int32', name='doc_input')
-        else:
-            # WORD-level
-            word_input = layers.Input(shape=(self.max_seq_length,), dtype='int32', name='word_input')
+        #if self.use_sent:
+            #word_input = layers.Input(shape=(self.sent_max_len, ), dtype='int32', name='doc_input')
+        #else:
+        # WORD-level
+        word_input = layers.Input(shape=(self.max_seq_length,), dtype='int32', name='word_input')
+        
         # Building word-embeddings from scratch
         if self.embedding_layer is None:
             self.embedding_layer = layers.Embedding(
@@ -97,10 +99,7 @@ class CNN(BaseEstimator):
                 name="word_embedding"
             )
             x = self.embedding_layer(word_input)
-        else:
-            mask_inputs = tf.keras.layers.Input(shape=(self.max_seq_length,), name='mask_inputs', dtype='int32')
-            seg_inputs = tf.keras.layers.Input(shape=(self.max_seq_length,), name='seg_inputs', dtype='int32')
-            x = self.embedding_layer([word_input, mask_inputs, seg_inputs])[0]
+        else : x = self.embedding_layer(word_input)[0]
 
         if self.dropout_rate:
             x = layers.Dropout(self.dropout_rate)(x)
@@ -124,8 +123,7 @@ class CNN(BaseEstimator):
 
             prediction = layers.Average()([prediction, x_char])
             return tf.keras.Model(inputs=[word_input, char_input], outputs=prediction, name='CNN_Word_Char')
-        if self.embedding_layer.name != 'word_embedding': return tf.keras.Model(inputs=[word_input, mask_inputs, seg_inputs], outputs=prediction, name='CNN_Word')
-        else: return tf.keras.Model(inputs=word_input, outputs=prediction, name='CNN_Word')
+        return tf.keras.Model(inputs=word_input, outputs=prediction, name='CNN_Word')
 
         '''
         if self.use_sent:

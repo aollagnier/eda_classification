@@ -21,7 +21,7 @@ from keras2vec.document import Document
 from corpus import Corpus
 from model import Model, OneVSRest
 from eda import EDA
-from dataganerator import DataGenerator
+from datagenerator import DataGenerator
 
 class Classification(object):
     def __init__(self, options={}): 
@@ -71,14 +71,27 @@ class Classification(object):
             
             print('Running iteration %i/%i' % (i+1, self.runs))
             #data = DataGenerator(data.text, data.label.values, dirModel, self.options, max_len=396, n_classes= len(labels), val_gen=True)
-            data = DataGenerator(data.text, data.label.values, dirModel, self.options, batch_size=50, max_len=396, n_classes= len(labels))
-            
+            data = DataGenerator(data.text, data.label.values, dirModel, self.options, batch_size=8, max_len=396, embedding = 'bert', n_classes= len(labels))
+            #data = DataGenerator(data.text, data.label.values, dirModel, self.options, batch_size=50, max_len=396, n_classes= len(labels))
             print("Training...")
             if self.options.b: model = OneVSRest(dirModel, self.options)
             else: model = Model(dirModel, self.options)
-        
             current_time_bf=datetime.now()
             model._runTrain(data)
+            '''
+            model= self.buildcnn()
+            model.compile(
+                    loss='categorical_crossentropy',
+                    optimizer=tf.optimizers.Adam(),
+                    metrics=['accuracy']
+                    )
+            model.summary()
+            
+            model.fit(data, epochs=10,
+                #steps_per_epoch=np.ceil(float(len(generator.docs)) / float(self.args['BATCH_SIZE'])),
+                steps_per_epoch=len(data),
+                verbose=1)
+            '''
             current_time_af=datetime.now()
             c = current_time_af - current_time_bf
             print("Elapsed time =", c.total_seconds())
@@ -146,6 +159,35 @@ class Classification(object):
                 results.append(command)
                 print(command)
         print(results)
+
+    def buildcnn(self):
+        # Define token ids as inputs
+        word_inputs = tf.keras.layers.Input(shape=(396, 768), name='word_inputs', dtype='float32')
+        doc_inputs = tf.keras.layers.Input(shape=(10, 20), name='doc_inputs', dtype='int32')
+        
+        #embedding_layer = tf.keras.layers.Embedding(
+                #input_dim=self.sent_max_len,
+                #input_dim=10000,
+                #output_dim=300,
+                #input_length=20,
+                #weights=None, trainable=True,
+                #name="word_embedding"
+            #)(word_inputs)
+        x=tf.keras.layers.SpatialDropout1D(0.0)(word_inputs)
+        conv=tf.keras.layers.Conv1D(32, kernel_size=3, activation='relu', name="input")(x)
+        #conv = tf.keras.layers.Conv2D(32, kernel_size=(3, 300), kernel_initializer='normal', activation='elu', input_shape=(10, 20, 300))(embedding_layer)
+        x = tf.keras.layers.MaxPooling1D()(conv)
+        x = tf.keras.layers.LSTM(100)(x)
+        x = tf.keras.layers.Flatten()(x)
+        dense = tf.keras.layers.Dense(64, activation='relu')(x)
+
+        # Final output
+        outputs = tf.keras.layers.Dense(563, activation='softmax', name='outputs')(dense)
+
+        # Compile model
+        model = tf.keras.Model(inputs=[word_inputs, doc_inputs], outputs=[outputs])
+        return model
+
     
     def test(self, dirTestCorpus, dirModel):
         # usage: python3 main.py -L -t proc data/final_dataset_v2_to_publish/test/text_files/ model/proc/cnn.h5

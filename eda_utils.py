@@ -5,29 +5,17 @@ import random
 from random import shuffle
 random.seed(1)
 from nltk.corpus import stopwords
+from tensorflow.keras.preprocessing.text import text_to_word_sequence
 
 #cleaning up text
 import re
 def get_only_chars(line):
     clean_line = ""
-    
-    line = line.replace("’", "")
-    line = line.replace("'", "")
     line = line.replace("-", " ") #replace hyphens with spaces
-    line = line.replace("\t", " ")
-    line = line.replace("\n", " ")
-    line = line.lower()
-    
-    for char in line:
-        if char in 'qwertyuiopasdfghjklzxcvbnm ':
-            clean_line += char
-        else:
-            clean_line += ' '
-    
-    clean_line = re.sub(' +',' ',clean_line) #delete extra spaces
-    if clean_line[0] == ' ':
-        clean_line = clean_line[1:]
-    return clean_line
+    line = line.replace("/", " ") #replace slash with spaces
+    clean_line = text_to_word_sequence(line, lower=True, filters='“”!"#$%&()*+,-.:;<=>?@[\\]^_`{|}~\t\n')
+    #clean_line = [i for i in clean_line if len(i) > 3 and i not in stopwords.words('spanish')]
+    return ' '.join(clean_line)
 
 ########################################################################
 # Synonym replacement
@@ -142,11 +130,20 @@ def add_word(new_words, lang):
 	new_words.insert(random_idx, random_synonym)
 
 ########################################################################
+# Vertical Flip
+# Flip a sentence according to a given percentage
+########################################################################
+
+def v_flip(words, p):
+    words.reverse()
+    return words
+
+########################################################################
 # main data augmentation function
 ########################################################################
 
-def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=9):
-    strat = [float(i) for i in [alpha_sr, alpha_ri, alpha_rs, p_rd]]
+def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, alpha_vf = 0.5, num_aug=9):
+    strat = [float(i) for i in [alpha_sr, alpha_ri, alpha_rs, p_rd, alpha_vf]]
     count=strat.count(0.0)
     
     sentence = get_only_chars(sentence)
@@ -162,6 +159,13 @@ def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=9)
         n_ri = max(1, int(alpha_ri*num_words))
         n_rs = max(1, int(alpha_rs*num_words))
     
+        #vf
+        if alpha_vf !=0 or alpha_vf !=0.0:
+            #print('Vertical Flip...')
+            for _ in range(num_new_per_technique):
+                a_words = v_flip(words, alpha_vf)
+                augmented_sentences.append(' '.join(a_words))
+
         #sr
         if alpha_sr !=0 or alpha_sr !=0.0:
             #print('Synonym replacement processing...')

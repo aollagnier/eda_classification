@@ -16,6 +16,7 @@ import tensorflow_hub as hub
 print("Version: ", tf.__version__)
 from keras.utils import to_categorical
 from sklearn.preprocessing import LabelEncoder
+from transformers import *
 
 from cnn_model import CNN
 import utils, eda_utils
@@ -115,12 +116,19 @@ class Model:
                 }
 
     def _runTrain(self, generator):
-        embedding_layer=None
         
         #self._tokenizer_initialization(dataFrame, word_vocab_size=self.args['MAX_NUM_WORDS'])
         #train_x, train_y =self._preprocess(dataFrame, self.w2idx_dict, self.args['MAX_LEN'])
         #nb_classes=train_y.shape[1]
         nb_classes= generator.n_classes 
+        embedding_layer=None
+        if generator.embedding:
+            config_name = generator.nmodel
+            config = generator.config.from_pretrained(config_name)
+            config.output_hidden_states = False
+            model = generator.model_class.from_pretrained(config_name, config=config)
+
+            embedding_layer=model
         
         print('Build model...')
         model=CNN(
